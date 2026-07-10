@@ -1,54 +1,86 @@
-require('dotenv').config();
-const { firefox } = require('playwright');
+require("dotenv").config();
 
-//Normalizar la fecha en el formato DD/MM/YYYY
-function normalizeDate(value) {
-  const cleaned = value.trim();
+const { llenarFormulario } = require("./form");
+const fs = require("fs");
+const readline = require("readline");
+const { firefox } = require("playwright");
 
-  if (/^\d{4}-\d{2}-\d{2}$/.test(cleaned)) {
-    return cleaned;
-  }
+const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+});
 
-  const match = cleaned.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
-  if (!match) {
-    throw new Error('Formato de fecha inválido. Usa YYYY-MM-DD o DD/MM/YYYY.');
-  }
-
-  const [, day, month, year] = match;
-  return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+function esperarEnter() {
+    return new Promise(resolve => {
+        rl.question(
+            "\nPresiona ENTER cuando hayas ingresado el código del correo electrónico y estés listo para continuar...",
+            () => resolve()
+        );
+    });
 }
 
 (async () => {
-  const numberDocument = process.env.NUMBER_DOCUMENT;
-  const name = process.env.APPLICANT_NAME;
-  const numberPhone = process.env.NUMBER_PHONE;
-  const address = process.env.ADDRESS;
-  const email = process.env.EMAIL;
-  const paymentDate = normalizeDate(process.env.PAYMENT_DATE || '');
-  const baseUrl = process.env.BASE_URL_QA;
 
-  if (!numberDocument || !name || !numberPhone || !address || !email || !paymentDate) {
-    throw new Error('Faltan variables de entorno. Revisa el archivo .env.');
-  }
+    const baseUrl = process.env.BASE_URL_QA;
+    console.log("BASE_URL_QA:", baseUrl);
 
-  const browser = await firefox.launch({ headless: false });
+    if (!baseUrl) {
+        throw new Error("Falta BASE_URL_QA");
+    }
 
-  if (browser.isConnected()) {
-    console.log('Browser is connected');
-    const page = await browser.newPage();
-    await page.goto(baseUrl);
+    const usuarios = JSON.parse(
+        fs.readFileSync("./users.json", "utf8")
+    );
 
-    if (await page.locator("//*[@id='databundle_passportschedulingrequest_dniSolicitante']").isVisible()) {
-      await page.locator("//*[@id='databundle_passportschedulingrequest_documentTypeSolicitante']").selectOption({ index: 1 });
-      await page.locator("//*[@id='databundle_passportschedulingrequest_dniSolicitante']").fill(`${numberDocument}`);
-      await page.locator("//*[@id='databundle_passportschedulingrequest_nameApplicant']").fill(name);
-      await page.locator("//*[@id='databundle_passportschedulingrequest_passportRequestType']").selectOption({ index: 1 });
-      await page.locator("//*[@id='databundle_passportschedulingrequest_cellPhone']").fill(`${numberPhone}`);
-      await page.locator("//*[@id='databundle_passportschedulingrequest_address']").fill(address);
-      await page.locator("//*[@id='databundle_passportschedulingrequest_email']").fill(email);
-      await page.locator("//*[@id='databundle_passportschedulingrequest_confirmemail']").fill(email);
-      await page.locator("//*[@id='fechaPago']").fill(paymentDate);
+    const browser = await firefox.launch({
+        headless: false
+    });
+
+    const context = await browser.newContext();
+
+    for (const usuario of usuarios) {
+
+        const page = await context.newPage();
+
+        try {
+            await page.goto(baseUrl);
+            await llenarFormulario(
+                page,
+                usuario,
+                baseUrl
+            );
+
+            console.log(
+                "\nEsperando que ingreses el codigo del correo electronico."
+            );
+            await esperarEnter();
+
+            console.log(
+                "\nContinuando con el proceso de registro para el usuario:",
+                usuario.name
+            );
+            await esperarEnter();
+            // await page.locator("//*[@id='passportNextStep1']").click();
+            // await page.locator("/html/body/main/div[1]/div[1]/div[3]/div[2]/div[1]/div/div[2]/label/span").click();
+            
+            
+
+        } catch (err) {
+
+            console.error(
+                `Error con ${usuario.name}`,
+                err.message
+            );
+
+        } finally {
+
+            await page.close();
+
+        }
 
     }
-  }
+
+    rl.close();
+    await browser.close();
+
 })();
