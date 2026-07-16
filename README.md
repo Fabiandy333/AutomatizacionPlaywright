@@ -8,20 +8,23 @@ Automatización desarrollada con Playwright para realizar el cargue de usuarios 
 - Playwright
 - Dotenv
 
+## Configuración del users.json
+
+[
+  {
+    "numberDocument": "98245678",
+    "name": "Luz Marina Gonzalez",
+    "numberPhone": "123456",
+    "address": "Calle 10 #20-30 ",
+    "email": "ejemplocorreoprueba.qa@dominio.com",
+    "paymentDate": "08/12/2026"
+  }]
+
 ## Instalación
 
 ```bash
 npm install
 
-## Configuración
-
-NUMBER_DOCUMENT= 
-APPLICANT_NAME=
-NUMBER_PHONE=
-ADDRESS=
-EMAIL=
-PAYMENT_DATE=
-BASE_URL_QA=
 
 ## Ejecución
 
@@ -37,13 +40,12 @@ Cuando crees otra automatización:
 pasaportes-gobernacion-valle/
 │
 ├── cargue-usuarios/
-├── actualizar-usuarios/
-├── consultar-citas/
-└── generar-reportes/
+
 
 Cada una tendrá:
 
 .env
 package.json
 src/
+users.json
 README.md
