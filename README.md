@@ -19,6 +19,9 @@ Automatización desarrollada con Playwright para realizar el cargue de usuarios 
     "email": "ejemplocorreoprueba.qa@dominio.com",
     "paymentDate": "08/12/2026"
   }]
+## Configuración .env
+
+BASE_URL_QA=https://ejemploURLbase.com
 
 ## Instalación
 
