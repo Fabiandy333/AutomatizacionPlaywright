@@ -4,4 +4,4 @@ logs/
 screenshots/
 playwright-report/
 test-results/
-users.json
+modules/pasaportes/data/users.json
