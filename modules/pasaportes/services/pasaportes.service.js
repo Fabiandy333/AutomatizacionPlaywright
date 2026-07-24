@@ -19,7 +19,7 @@ function iniciarAgendamiento(usuario) {
     // propio orquestador; aqui solo evitamos un unhandled rejection.
   });
 
-  return { executionId };
+  return { executionId, email: usuario.email};
 }
 
 /**
@@ -43,7 +43,10 @@ function iniciarLote(usuarios) {
     Promise.resolve()
   );
 
-  return ejecuciones.map(({ executionId, usuario }) => ({ executionId, name: usuario.name }));
+  return ejecuciones.map(({ executionId, usuario }) => ({ 
+    executionId, 
+    name: usuario.name,
+  email: usuario.email }));
 }
 
 function recibirCodigoOtp(executionId, codigo) {
