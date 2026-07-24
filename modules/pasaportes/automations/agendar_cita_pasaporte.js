@@ -52,7 +52,7 @@ async function agendarCitaPasaporte(usuario, executionId) {
     log.info(`Iniciando agendamiento para ${usuario.name} (doc ${usuario.numberDocument})`);
 
     // 1. Ir al formulario de agendamiento
-    await page.goto(BASE_URL);
+    await page.goto("https://passports.appoloatiende.com/home/agendar");
 
     // 2. Paso 1 — Datos personales
     await page.getByLabel('Tipo de documento *').selectOption(usuario.tipoDocumento);
