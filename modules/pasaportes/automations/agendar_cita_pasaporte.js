@@ -49,100 +49,167 @@ async function agendarCitaPasaporte(usuario, executionId) {
   const page = await browser.newPage();
 
   try {
-    log.info(`Iniciando agendamiento para ${usuario.name} (doc ${usuario.numberDocument})`);
+    log.info(
+      `Iniciando agendamiento para ${usuario.name} (doc ${usuario.numberDocument})`,
+    );
 
     // 1. Ir al formulario de agendamiento
     await page.goto("https://passports.appoloatiende.com/home/agendar");
 
     // 2. Paso 1 — Datos personales
-    await page.getByLabel('Tipo de documento *').selectOption(usuario.tipoDocumento);
-    await page.getByRole('spinbutton', { name: 'Número de documento *' }).fill(usuario.numberDocument);
-    await page.getByRole('textbox', { name: 'Nombre completo *' }).fill(usuario.name);
-    await page.getByLabel('Tipo de solicitud *').selectOption(usuario.tipoSolicitud);
-    await page.getByRole('spinbutton', { name: 'Número de celular *' }).fill(usuario.numberPhone);
+    await page
+      .getByLabel("Tipo de documento *")
+      .selectOption(usuario.tipoDocumento);
+    await page
+      .getByRole("spinbutton", { name: "Número de documento *" })
+      .fill(usuario.numberDocument);
+
+    // Fecha de nacimiento: el input es type="text", asi que se setea el value directo
+    await page.evaluate((fecha) => {
+      const el = document.getElementById(
+        "databundle_passportschedulingrequest_fechaNacimiento",
+      );
+
+      el.value = fecha;
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    }, usuario.dateOfBirth);
+
+    await page
+      .getByRole("textbox", { name: "Nombre completo *" })
+      .fill(usuario.name);
+    await page
+      .getByLabel("Tipo de solicitud *")
+      .selectOption(usuario.tipoSolicitud);
+    await page
+      .getByRole("spinbutton", { name: "Número de celular *" })
+      .fill(usuario.numberPhone);
     if (usuario.numberFixed) {
-      await page.getByRole('spinbutton', { name: 'Número de teléfono fijo' }).fill(usuario.numberFixed);
+      await page
+        .getByRole("spinbutton", { name: "Número de teléfono fijo" })
+        .fill(usuario.numberFixed);
     }
-    await page.getByRole('textbox', { name: 'Dirección *' }).fill(usuario.address);
-    await page.getByRole('textbox', { name: 'Correo electrónico *', exact: true }).fill(usuario.email);
-    await page.getByRole('textbox', { name: 'Confirmar correo electrónico *' }).fill(usuario.email);
+    await page
+      .getByRole("textbox", { name: "Dirección *" })
+      .fill(usuario.address);
+    await page
+      .getByRole("textbox", { name: "Correo electrónico *", exact: true })
+      .fill(usuario.email);
+    await page
+      .getByRole("textbox", { name: "Confirmar correo electrónico *" })
+      .fill(usuario.email);
 
     // Fecha de pago: el input es type="date", asi que se setea el value directo
     await page.evaluate((isoDate) => {
-      const el = document.getElementById('fechaPago');
+      const el = document.getElementById("fechaPago");
       el.value = isoDate;
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-      el.dispatchEvent(new Event('change', { bubbles: true }));
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
     }, toIsoDate(usuario.paymentDate));
 
     if (usuario.isCompanion) {
-      await page.locator('#acompanante').selectOption({ index: 1 });
-      await page.getByLabel('Tipo de acompañante').selectOption(usuario.tipoCompanion);
-      await page.getByRole('textbox', { name: 'Número de identificación' }).fill(usuario.numberCompanion);
-      await page.getByRole('textbox', { name: 'Nombre y Apellido' }).fill(usuario.nameCompanion);
+      await page.locator("#acompanante").selectOption({ index: 1 });
+      await page
+        .getByLabel("Tipo de acompañante")
+        .selectOption(usuario.tipoCompanion);
+      await page
+        .getByRole("textbox", { name: "Número de identificación" })
+        .fill(usuario.numberCompanion);
+      await page
+        .getByRole("textbox", { name: "Nombre y Apellido" })
+        .fill(usuario.nameCompanion);
     } else {
-      await page.locator('#acompanante').selectOption({ index: 0 });
+      await page.locator("#acompanante").selectOption({ index: 0 });
     }
-    log.ok('Formulario de datos personales completado');
+    log.ok("Formulario de datos personales completado");
 
     // 3. Validar correo electronico (envia el codigo OTP)
-    await page.getByRole('button', { name: 'Validar correo electrónico' }).click();
-    await page.getByRole('button', { name: 'Enviar Código' }).click();
+    await page
+      .getByRole("button", { name: "Validar correo electrónico" })
+      .click();
+    await page.getByRole("button", { name: "Enviar Código" }).click();
     log.info(`Codigo OTP solicitado, enviado a ${usuario.email}`);
 
     // --- Aqui iba el primer page.pause(): ahora se espera el OTP real ---
-    executionsRepo.actualizar(executionId, { estado: 'esperando_otp' });
-    log.info('Esperando que el frontend envie el codigo OTP...');
-    const codigoOtp = await pendingSignals.waitFor(`${executionId}:otp`, { timeoutMs: OTP_TIMEOUT_MS });
+    executionsRepo.actualizar(executionId, { estado: "esperando_otp" });
+    log.info("Esperando que el frontend envie el codigo OTP...");
+    const codigoOtp = await pendingSignals.waitFor(`${executionId}:otp`, {
+      timeoutMs: OTP_TIMEOUT_MS,
+    });
     log.ok(`Codigo OTP recibido: ${codigoOtp}`);
-    await page.getByRole('textbox', { name: 'Digitar código enviado al' }).fill(codigoOtp);
+    await page
+      .getByRole("textbox", { name: "Digitar código enviado al" })
+      .fill(codigoOtp);
 
-    await page.getByRole('checkbox', { name: 'Acepto la política de' }).setChecked(true);
+    await page
+      .getByRole("checkbox", { name: "Acepto la política de" })
+      .setChecked(true);
 
     // --- Primer punto donde puede salir el reCAPTCHA (antes de "Siguiente") ---
-    executionsRepo.actualizar(executionId, { estado: 'esperando_recaptcha' });
-    log.info('Si aparecio un reto de reCAPTCHA, resuelvelo en la ventana del navegador (1/2).');
-    await pendingSignals.waitFor(`${executionId}:recaptcha_1`, { timeoutMs: RECAPTCHA_TIMEOUT_MS });
-    log.ok('Confirmacion recibida (1/2), continuando.');
+    executionsRepo.actualizar(executionId, { estado: "esperando_recaptcha" });
+    log.info(
+      "Si aparecio un reto de reCAPTCHA, resuelvelo en la ventana del navegador (1/2).",
+    );
+    await pendingSignals.waitFor(`${executionId}:recaptcha_1`, {
+      timeoutMs: RECAPTCHA_TIMEOUT_MS,
+    });
+    log.ok("Confirmacion recibida (1/2), continuando.");
 
     // 4. Avanzar
-    await page.getByRole('button', { name: 'Siguiente' }).click();
+    await page.getByRole("button", { name: "Siguiente" }).click();
 
     // --- Segundo punto donde puede salir el reCAPTCHA (despues de "Siguiente") ---
-    log.info('Si aparecio un reto de reCAPTCHA, resuelvelo en la ventana del navegador (2/2).');
-    await pendingSignals.waitFor(`${executionId}:recaptcha_2`, { timeoutMs: RECAPTCHA_TIMEOUT_MS });
-    log.ok('Confirmacion recibida (2/2), continuando.');
+    log.info(
+      "Si aparecio un reto de reCAPTCHA, resuelvelo en la ventana del navegador (2/2).",
+    );
+    await pendingSignals.waitFor(`${executionId}:recaptcha_2`, {
+      timeoutMs: RECAPTCHA_TIMEOUT_MS,
+    });
+    log.ok("Confirmacion recibida (2/2), continuando.");
 
     // 5. Paso 2 — Lugar, fecha y hora
-    await page.locator('.mt-2').first().click();
-    await page.getByRole('cell', { name: usuario.diaPreferido || '17' }).click();
-    await page.getByText(usuario.horaPreferida || '04:00:00 PM 1 citas').click();
-    await page.getByRole('button', { name: 'Siguiente' }).click();
-    log.ok('Sede, fecha y hora seleccionadas');
+    await page.locator(".mt-2").first().click();
+    await page
+      .getByRole("cell", { name: usuario.diaPreferido || "17" })
+      .click();
+    await page
+      .getByText(usuario.horaPreferida || "04:00:00 PM 1 citas")
+      .click();
+    await page.getByRole("button", { name: "Siguiente" }).click();
+    log.ok("Sede, fecha y hora seleccionadas");
 
     // 6. Paso 3 — Confirmacion
-    await page.getByRole('button', { name: 'Confirmar' }).click();
+    await page.getByRole("button", { name: "Confirmar" }).click();
 
     const response = await page.waitForResponse((res) =>
-      res.url().includes('/createPassportSchedulingRequest')
+      res.url().includes("/createPassportSchedulingRequest"),
     );
     log.info(`createPassportSchedulingRequest -> ${response.status()}`);
     if (response.status() !== 200) {
-      throw new Error('El servidor rechazo la solicitud de agendamiento (revisa OTP/reCAPTCHA).');
+      throw new Error(
+        "El servidor rechazo la solicitud de agendamiento (revisa OTP/reCAPTCHA).",
+      );
     }
 
     // 7. Encuesta de satisfaccion -> flujo real de confirmacion
-    await page.getByRole('button', { name: 'Calificar y continuar' }).click();
-    await page.getByRole('button', { name: 'Tomar cita' }).click();
+    await page.getByRole("button", { name: "Calificar y continuar" }).click();
+    await page.getByRole("button", { name: "Tomar cita" }).click();
 
     // 8. Verificar mensaje final y capturar el link del comprobante
-    await page.getByRole('heading', { name: 'Cita agendada con éxito' }).waitFor();
-    const comprobanteHref = await page.getByRole('link', { name: 'Descargar comprobante' }).getAttribute('href');
+    await page
+      .getByRole("heading", { name: "Cita agendada con éxito" })
+      .waitFor();
+    const comprobanteHref = await page
+      .getByRole("link", { name: "Descargar comprobante" })
+      .getAttribute("href");
 
     log.ok(`Cita agendada con exito. Comprobante: ${comprobanteHref}`);
-    executionsRepo.actualizar(executionId, { estado: 'exitoso', comprobanteUrl: comprobanteHref });
+    executionsRepo.actualizar(executionId, {
+      estado: "exitoso",
+      comprobanteUrl: comprobanteHref,
+    });
 
-    return { estado: 'exitoso', comprobanteUrl: comprobanteHref };
+    return { estado: "exitoso", comprobanteUrl: comprobanteHref };
   } catch (error) {
     log.error(error.message);
     executionsRepo.actualizar(executionId, { estado: 'fallido', error: error.message });
