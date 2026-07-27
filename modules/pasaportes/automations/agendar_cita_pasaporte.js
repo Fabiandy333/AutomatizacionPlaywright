@@ -20,6 +20,7 @@ const { chromium } = require('playwright');
 const pendingSignals = require('../../../shared/queue/pendingSignals');
 const executionsRepo = require('../../../shared/database/executionsRepository');
 const { crearLogger } = require('../../../shared/logger/logger');
+const pageRegistry = require('../../../shared/streaming/pageRegistry');
 
 const BASE_URL = process.env.BASE_URL_QA;
 const OTP_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutos para que llegue el OTP desde el frontend
@@ -47,6 +48,7 @@ async function agendarCitaPasaporte(usuario, executionId) {
   // intentar resolver el reto automaticamente bajo ninguna circunstancia.
   const browser = await chromium.launch({ headless: false });
   const page = await browser.newPage();
+  pageRegistry.registrar(executionId, page);
 
   try {
     log.info(
@@ -215,6 +217,7 @@ async function agendarCitaPasaporte(usuario, executionId) {
     executionsRepo.actualizar(executionId, { estado: 'fallido', error: error.message });
     throw error;
   } finally {
+    pageRegistry.quitar(executionId);
     await browser.close();
   }
 }
