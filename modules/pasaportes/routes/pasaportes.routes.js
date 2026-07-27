@@ -1,5 +1,6 @@
 const { Router } = require('express');
 const pasaportesService = require('../services/pasaportes.service');
+const { obtenerLog, obtenerEmitter } = require('../../../shared/logger/logger');
 
 const router = Router();
 
@@ -52,6 +53,39 @@ router.get('/:executionId/estado', (req, res) => {
 
 router.get('/:executionId/log', (req, res) => {
   res.json(pasaportesService.obtenerLogDeEjecucion(req.params.executionId));
+});
+
+// Endpoint SSE para streaming de logs en tiempo real
+router.get('/:executionId/logs', (req, res) => {
+  const executionId = req.params.executionId;
+  
+  // Configurar headers para SSE
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  
+  // Enviar los logs historicos primero
+  const logsHistoricos = obtenerLog(executionId);
+  logsHistoricos.forEach((entry) => {
+    res.write(`data: ${JSON.stringify(entry)}\n\n`);
+  });
+  
+  // Obtener el emitter para esta ejecucion
+  const emitter = obtenerEmitter(executionId);
+  
+  // Listener para nuevos logs
+  const onLog = (entry) => {
+    res.write(`data: ${JSON.stringify(entry)}\n\n`);
+  };
+  
+  emitter.on('log', onLog);
+  
+  // Cuando el cliente se desconecta
+  req.on('close', () => {
+    emitter.removeListener('log', onLog);
+    res.end();
+  });
 });
 
 module.exports = router;
