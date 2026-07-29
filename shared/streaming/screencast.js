@@ -15,12 +15,18 @@
 async function iniciarScreencast(page, onFrame) {
   const cdpSession = await page.context().newCDPSession(page);
 
-  cdpSession.on('Page.screencastFrame', async (evento) => {
-    // data ya viene en base64, lista para un <img src="data:image/jpeg;base64,...">
-    onFrame(evento.data);
-    // hay que confirmar cada frame o CDP deja de mandar mas
-    await cdpSession.send('Page.screencastFrameAck', { sessionId: evento.sessionId });
-  });
+  const handleFrame = async (evento) => {
+    try {
+      // data ya viene en base64, lista para un <img src="data:image/jpeg;base64,...">
+      onFrame(evento.data);
+      // hay que confirmar cada frame o CDP deja de mandar mas
+      await cdpSession.send('Page.screencastFrameAck', { sessionId: evento.sessionId });
+    } catch {
+      // Si la página/contexto ya se cerró, simplemente ignoramos el error.
+    }
+  };
+
+  cdpSession.on('Page.screencastFrame', handleFrame);
 
   await cdpSession.send('Page.startScreencast', {
     format: 'jpeg',
@@ -30,14 +36,28 @@ async function iniciarScreencast(page, onFrame) {
     everyNthFrame: 1,
   });
 
+  const cleanup = async () => {
+    cdpSession.off('Page.screencastFrame', handleFrame);
+    try {
+      await cdpSession.send('Page.stopScreencast');
+    } catch {
+      // la página/navegador ya pudo haberse cerrado
+    }
+    try {
+      await cdpSession.detach();
+    } catch {
+      // ya estaba desconectado o la página se cerró
+    }
+  };
+
+  page.on('close', cleanup);
+  page.on('crash', cleanup);
+
   return {
     detener: async () => {
-      try {
-        await cdpSession.send('Page.stopScreencast');
-        await cdpSession.detach();
-      } catch {
-        // la pagina/navegador ya pudo haberse cerrado
-      }
+      page.off('close', cleanup);
+      page.off('crash', cleanup);
+      await cleanup();
     },
   };
 }

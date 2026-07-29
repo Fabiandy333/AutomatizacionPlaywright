@@ -71,12 +71,12 @@ async function manejarRecaptchaSiAparece(page, executionId, log, deteccionTimeou
   if (!aparecio) return false;
 
   executionsRepo.actualizar(executionId, { estado: 'esperando_recaptcha' });
-  log.info('Aparecio un reto de reCAPTCHA (overlay detectado), resuelvelo en la ventana del navegador.');
-  await pendingSignals.waitFor(`${executionId}:recaptcha_1`, { timeoutMs: RECAPTCHA_TIMEOUT_MS });
+  log.info('Apareció un reto de reCAPTCHA (overlay detectado), resuélvelo en la ventana del navegador.');
 
-  // Tras la confirmacion humana, se espera a que el overlay desaparezca
-  // de verdad (evita seguir de largo si el operador confirmo antes de tiempo)
-  await overlay.waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
+  // Espera directamente a que el overlay físico desaparezca del DOM.
+  // No se necesita ninguna señal externa para continuar.
+  await overlay.waitFor({ state: 'hidden', timeout: RECAPTCHA_TIMEOUT_MS });
+
   log.ok('Reto de reCAPTCHA resuelto, continuando.');
   return true;
 }
@@ -188,20 +188,24 @@ async function agendarCitaPasaporte(usuario, executionId) {
 
     // 5. Paso 2 — Lugar, fecha y hora (dinamico, no estatico)
 
-    // Sede: se busca la tarjeta que contiene el texto "norte" (mas robusto
-    // que depender del indice/orden en que la pagina las liste) y se hace
-    // click en su boton "Seleccionar".
+    // Sede: se busca la tarjeta que contiene el texto "cali, norte" y se
+    // hace click en su botón de seleccionar.
     const tarjetaSedeNorte = page
-      .locator('#step2-tab-pane div')
-      .filter({ hasText: /norte/i })
+      .locator('div.d-flex.justify-content-between.align-items-center.flex-wrap')
+      .filter({ hasText: /cali,\s*norte/i })
       .first();
-    await tarjetaSedeNorte.getByRole('button', { name: 'Seleccionar' }).click();
+
+    if ((await tarjetaSedeNorte.count()) === 0) {
+      throw new Error('No se encontró la tarjeta de sede "Cali, Norte".');
+    }
+
+    await tarjetaSedeNorte.locator('label.radio-btn').click();
     log.ok('Sede "Cali, Norte" seleccionada');
 
     // Fecha: el sitio marca con la clase "highlight" los dias con cupos.
     // Se toma la primera disponible en el orden en que aparece el calendario.
     const fechaDisponible = page.locator('table td.highlight').first();
-    if ((await fechaDisponible.count()) === 0) {
+    if ((await fechaDisponible.waitFor()) === 0) {
       throw new Error('No hay fechas disponibles para agendar en esta sede.');
     }
     const tituloFecha = await fechaDisponible.getAttribute('title');
@@ -210,7 +214,7 @@ async function agendarCitaPasaporte(usuario, executionId) {
 
     // Hora: elementos .buttonList-interval son los horarios con cupo.
     const horaDisponible = page.locator('.buttonList-interval').first();
-    if ((await horaDisponible.count()) === 0) {
+    if ((await horaDisponible.waitFor()) === 0) {
       throw new Error(
         'La fecha seleccionada no tiene horas disponibles. Se necesita elegir otra fecha (no automatizado todavia).'
       );
@@ -223,25 +227,29 @@ async function agendarCitaPasaporte(usuario, executionId) {
     log.ok('Sede, fecha y hora seleccionadas');
 
     // 6. Paso 3 — Confirmacion
-    await page.getByRole('button', { name: 'Confirmar' }).click();
+    await page.getByRole('button', { name: 'Agendar' }).click();
 
-    const response = await page.waitForResponse((res) =>
-      res.url().includes('/createPassportSchedulingRequest')
-    );
-    log.info(`createPassportSchedulingRequest -> ${response.status()}`);
-    if (response.status() !== 200) {
-      throw new Error('El servidor rechazo la solicitud de agendamiento (revisa OTP/reCAPTCHA).');
-    }
+    // const response = await page.waitForResponse((res) =>
+    //   res.url().includes('/createPassportSchedulingRequest')
+    // );
+    // log.info(`createPassportSchedulingRequest -> ${response.status()}`);
+    // if (response.status() !== 200) {
+    //   throw new Error('El servidor rechazo la solicitud de agendamiento (revisa OTP/reCAPTCHA).');
+    // }
 
     // 7. Encuesta de satisfaccion -> flujo real de confirmacion
-    await page.getByRole('button', { name: 'Calificar y continuar' }).click();
-    await page.getByRole('button', { name: 'Tomar cita' }).click();
-
+    await page.getByRole('button', { name: 'Calificar' }).click();
+    
     // 8. Verificar mensaje final y capturar el link del comprobante
+    await page.getByRole('button', { name: 'Aceptar' }).click();
+
     await page.getByRole('heading', { name: 'Cita agendada con éxito' }).waitFor();
+
+
     const comprobanteHref = await page.getByRole('link', { name: 'Descargar comprobante' }).getAttribute('href');
 
-    log.ok(`Cita agendada con exito. Comprobante: ${comprobanteHref}`);
+    log.ok(`Cita agendada con exito. Comprobante: https://passports.appoloatiende.com/${comprobanteHref}`);
+
     executionsRepo.actualizar(executionId, { estado: 'exitoso', comprobanteUrl: comprobanteHref });
 
     return { estado: 'exitoso', comprobanteUrl: comprobanteHref };
