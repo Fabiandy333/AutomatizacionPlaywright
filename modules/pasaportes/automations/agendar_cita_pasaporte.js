@@ -248,7 +248,8 @@ async function agendarCitaPasaporte(usuario, executionId) {
 
     const comprobanteHref = await page.getByRole('link', { name: 'Descargar comprobante' }).getAttribute('href');
 
-    log.ok(`Cita agendada con exito. Comprobante: ${comprobanteHref}`);
+    log.ok(`Cita agendada con exito. Comprobante: https://passports.appoloatiende.com/${comprobanteHref}`);
+
     executionsRepo.actualizar(executionId, { estado: 'exitoso', comprobanteUrl: comprobanteHref });
 
     return { estado: 'exitoso', comprobanteUrl: comprobanteHref };
