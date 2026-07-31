@@ -1,10 +1,16 @@
+require('dotenv').config();
+
 const http = require('http');
 const { Server } = require('socket.io');
 const app = require('./src/app');
 const pageRegistry = require('./shared/streaming/pageRegistry');
 const { iniciarScreencast } = require('./shared/streaming/screencast');
+const { allowedOrigins, extractToken } = require('./src/security');
 
 const PORT = process.env.PORT || 3000;
+if (!process.env.API_AUTH_TOKEN) {
+    throw new Error('API_AUTH_TOKEN es obligatorio. Configúralo en el archivo .env.');
+}
 
 // http.createServer envuelve el mismo "app" de Express que ya tenias.
 // Las rutas HTTP normales (/api/pasaportes/...) siguen funcionando
@@ -12,8 +18,19 @@ const PORT = process.env.PORT || 3000;
 const server = http.createServer(app);
 
 const io = new Server(server, {
-    cors: { origin: '*'},
+    cors: { origin: allowedOrigins() },
 });
+
+io.use((socket, next) => {
+    if (!allowedOrigins().includes(socket.handshake.headers.origin)) {
+        return next(new Error('Origen no permitido'));
+    }
+    if (extractToken({ headers: socket.handshake.headers, query: socket.handshake.auth }) !== process.env.API_AUTH_TOKEN) {
+        return next(new Error('No autorizado'));
+    }
+    next();
+});
+
 
 // Streaming de pantalla EN SOLO LECTURA. El cliente unicamente puede
 // suscribirse/desuscribirse a ver los fotogramas de una ejecucion — no
