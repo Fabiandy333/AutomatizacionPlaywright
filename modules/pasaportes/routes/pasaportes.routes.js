@@ -52,12 +52,22 @@ router.get('/:executionId/estado', (req, res) => {
 });
 
 router.get('/:executionId/log', (req, res) => {
-  res.json(pasaportesService.obtenerLogDeEjecucion(req.params.executionId));
+  try {
+    pasaportesService.obtenerEstado(req.params.executionId);
+    res.json(pasaportesService.obtenerLogDeEjecucion(req.params.executionId));
+  } catch (error) {
+    res.status(404).json({ error: error.message });
+  }
 });
 
 // Endpoint SSE para streaming de logs en tiempo real
 router.get('/:executionId/logs', (req, res) => {
   const executionId = req.params.executionId;
+  try {
+    pasaportesService.obtenerEstado(executionId);
+  } catch (error) {
+    return res.status(404).json({ error: error.message });
+  }
   
   // Configurar headers para SSE
   res.setHeader('Content-Type', 'text/event-stream');

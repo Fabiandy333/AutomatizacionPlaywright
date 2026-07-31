@@ -91,16 +91,16 @@ async function manejarRecaptchaSiAparece(page, executionId, log, deteccionTimeou
 async function agendarCitaPasaporte(usuario, executionId) {
   const log = crearLogger(executionId);
   executionsRepo.actualizar(executionId, { estado: 'en_progreso' });
-
-  // OJO - reCAPTCHA: este flujo asume que hay un operador humano frente a
-  // esta ventana del navegador (por eso headless: false). No se debe
-  // intentar resolver el reto automaticamente bajo ninguna circunstancia.
-  const browser = await chromium.launch({ headless: false });
-  const page = await browser.newPage();
-  pageRegistry.registrar(executionId, page);
+  let browser;
+  let page;
 
   try {
-    log.info(`Iniciando agendamiento para ${usuario.name} (doc ${usuario.numberDocument})`);
+    // OJO - reCAPTCHA: este flujo asume que hay un operador humano frente a
+    // esta ventana del navegador (por eso headless: false).
+    browser = await chromium.launch({ headless: false });
+    page = await browser.newPage();
+    pageRegistry.registrar(executionId, page);
+    log.info('Iniciando agendamiento');
 
     // 1. Ir al formulario de agendamiento
     await page.goto("https://passports.appoloatiende.com/home/agendar");
@@ -156,7 +156,7 @@ async function agendarCitaPasaporte(usuario, executionId) {
     executionsRepo.actualizar(executionId, { estado: 'esperando_otp' });
     log.info('Esperando que el frontend envie el codigo OTP...');
     const codigoOtp = await pendingSignals.waitFor(`${executionId}:otp`, { timeoutMs: OTP_TIMEOUT_MS });
-    log.ok(`Codigo OTP recibido: ${codigoOtp}`);
+    log.ok('Código OTP recibido');
     await page.getByRole('textbox', { name: 'Digitar código enviado al' }).fill(codigoOtp);
 
     await page.getByRole('checkbox', { name: 'Acepto la política de' }).setChecked(true);
@@ -204,21 +204,23 @@ async function agendarCitaPasaporte(usuario, executionId) {
 
     // Fecha: el sitio marca con la clase "highlight" los dias con cupos.
     // Se toma la primera disponible en el orden en que aparece el calendario.
-    const fechaDisponible = page.locator('table td.highlight').first();
-    if ((await fechaDisponible.waitFor()) === 0) {
+    const fechasDisponibles = page.locator('table td.highlight');
+    if ((await fechasDisponibles.count()) === 0) {
       throw new Error('No hay fechas disponibles para agendar en esta sede.');
     }
+    const fechaDisponible = fechasDisponibles.first();
     const tituloFecha = await fechaDisponible.getAttribute('title');
     await fechaDisponible.click();
     log.info(`Fecha seleccionada (${tituloFecha || 'sin detalle'})`);
 
     // Hora: elementos .buttonList-interval son los horarios con cupo.
-    const horaDisponible = page.locator('.buttonList-interval').first();
-    if ((await horaDisponible.waitFor()) === 0) {
+    const horasDisponibles = page.locator('.buttonList-interval');
+    if ((await horasDisponibles.count()) === 0) {
       throw new Error(
         'La fecha seleccionada no tiene horas disponibles. Se necesita elegir otra fecha (no automatizado todavia).'
       );
     }
+    const horaDisponible = horasDisponibles.first();
     const horaTexto = (await horaDisponible.innerText()).replace(/\s+/g, ' ').trim();
     await horaDisponible.click();
     log.ok(`Hora seleccionada: ${horaTexto}`);
@@ -259,7 +261,7 @@ async function agendarCitaPasaporte(usuario, executionId) {
     throw error;
   } finally {
     pageRegistry.quitar(executionId);
-    await browser.close();
+    if (browser) await browser.close();
   }
 }
 
