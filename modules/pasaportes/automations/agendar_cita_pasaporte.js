@@ -1,15 +1,6 @@
 /**
  * Automatizacion de agendamiento de cita de pasaporte.
  * Sitio: https://passports.appoloatiende.com/home/agendar
- *
- * IMPORTANTE:
- * - El codigo OTP no se automatiza: llega al correo del titular.
- *   `pendingSignals.waitFor(...)` congela el flujo hasta que el backend
- *   recibe el codigo por HTTP (POST /:executionId/otp).
- * - El reCAPTCHA tampoco se automatiza. Es INVISIBLE y solo se activa
- *   al hacer click en "Siguiente" — por eso el click va PRIMERO, y solo
- *   se pausa a esperar confirmacion humana si de verdad aparecio un
- *   reto visual (si paso solo, se sigue de largo sin pausar nunca).
  */
 
 const { chromium } = require('playwright');
