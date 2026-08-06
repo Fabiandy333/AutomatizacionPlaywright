@@ -13,6 +13,7 @@ const BASE_URL = process.env.BASE_URL_QA;
 const OTP_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutos para que llegue el OTP desde el frontend
 const RECAPTCHA_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutos para que el operador lo resuelva
 const AVANCE_AUTOMATICO_TIMEOUT_MS = 6000; // cuanto esperar a ver si el reCAPTCHA paso solo
+const DISPONIBILIDAD_TIMEOUT_MS = 8000; // cuanto esperar a que cargue el calendario de cada sede
 
 // Convierte DD/MM/YYYY -> YYYY-MM-DD (formato que exige el <input type="date">)
 function toIsoDate(ddmmyyyy) {
@@ -41,12 +42,6 @@ async function avanzoAutomaticamente(page, timeoutMs) {
  * (z-index 2000000000, fondo blanco semi-transparente) justo detras del
  * iframe del reto. Ese overlay es un marcador mucho mas confiable que
  * adivinar por tiempos o por si el formulario avanzo o no.
- *
- * Esta funcion revisa si aparece ese overlay dentro de un tiempo corto
- * (se llama justo despues de aceptar la politica de datos, que es donde
- * casi siempre se dispara el reto). Si aparece, pausa esperando la
- * confirmacion humana y luego espera a que el overlay desaparezca
- * (senal de que el reto ya se resolvio). Si no aparece, no hace nada.
  */
 async function manejarRecaptchaSiAparece(page, executionId, log, deteccionTimeoutMs) {
   const overlay = page.locator('div[style*="2000000000"]').first();
@@ -64,8 +59,6 @@ async function manejarRecaptchaSiAparece(page, executionId, log, deteccionTimeou
   executionsRepo.actualizar(executionId, { estado: 'esperando_recaptcha' });
   log.info('Apareció un reto de reCAPTCHA (overlay detectado), resuélvelo en la ventana del navegador.');
 
-  // Espera directamente a que el overlay físico desaparezca del DOM.
-  // No se necesita ninguna señal externa para continuar.
   await overlay.waitFor({ state: 'hidden', timeout: RECAPTCHA_TIMEOUT_MS });
 
   log.ok('Reto de reCAPTCHA resuelto, continuando.');
@@ -73,11 +66,55 @@ async function manejarRecaptchaSiAparece(page, executionId, log, deteccionTimeou
 }
 
 /**
+ * Recorre TODAS las tarjetas de sede disponibles en el paso 2 y
+ * selecciona la PRIMERA que realmente tenga fechas con cupo. No fuerza
+ * una sede especifica (ej. "Cali, Norte") — si esa sede en particular
+ * no tiene disponibilidad en este momento, prueba la siguiente
+ * automaticamente en vez de fallar.
+ *
+ * Devuelve { fechaLocator, tituloFecha, sedeTexto } de la sede/fecha
+ * que quedo seleccionada, o lanza un Error si ninguna sede tiene cupo.
+ */
+async function seleccionarSedeConDisponibilidad(page, log) {
+  const tarjetasSede = page.locator('div.d-flex.justify-content-between.align-items-center.flex-wrap');
+  const totalSedes = await tarjetasSede.count();
+
+  if (totalSedes === 0) {
+    throw new Error('No se encontraron sedes para seleccionar.');
+  }
+
+  for (let i = 0; i < totalSedes; i++) {
+    const tarjeta = tarjetasSede.nth(i);
+    const textoSede = (await tarjeta.innerText()).replace(/\s+/g, ' ').trim();
+
+    await tarjeta.locator('label.radio-btn').click();
+    log.info(`Probando sede: ${textoSede}`);
+
+    // El calendario carga la disponibilidad de esta sede via AJAX, no
+    // aparece de inmediato — por eso se usa waitFor (reintenta) en vez
+    // de count() (revisa una sola vez sin esperar).
+    const fechasDeEstaSede = page.locator('td.day.highlight');
+    const hayFecha = await fechasDeEstaSede
+      .first()
+      .waitFor({ state: 'attached', timeout: DISPONIBILIDAD_TIMEOUT_MS })
+      .then(() => true)
+      .catch(() => false);
+
+    if (hayFecha) {
+      const fechaLocator = fechasDeEstaSede.first();
+      const tituloFecha = await fechaLocator.getAttribute('title');
+      log.ok(`Sede con disponibilidad encontrada: "${textoSede}"`);
+      return { fechaLocator, tituloFecha, sedeTexto: textoSede };
+    }
+
+    log.info(`Sede "${textoSede}" sin fechas disponibles, probando la siguiente...`);
+  }
+
+  throw new Error('Ninguna sede tiene fechas disponibles en este momento.');
+}
+
+/**
  * Ejecuta el agendamiento completo para UN usuario.
- * executionId identifica esta corrida especifica: es la clave que usan
- * las rutas HTTP para avisarle a este flujo que ya llego el OTP
- * (POST /:executionId/otp) o que el operador ya resolvio el reCAPTCHA
- * (POST /:executionId/recaptcha-resuelto/1).
  */
 async function agendarCitaPasaporte(usuario, executionId) {
   const log = crearLogger(executionId);
@@ -143,7 +180,6 @@ async function agendarCitaPasaporte(usuario, executionId) {
     await page.getByRole('button', { name: 'Enviar Código' }).click();
     log.info(`Codigo OTP solicitado, enviado a ${usuario.email}`);
 
-    // --- Aqui iba el page.pause(): ahora se espera el OTP real ---
     executionsRepo.actualizar(executionId, { estado: 'esperando_otp' });
     log.info('Esperando que el frontend envie el codigo OTP...');
     const codigoOtp = await pendingSignals.waitFor(`${executionId}:otp`, { timeoutMs: OTP_TIMEOUT_MS });
@@ -152,57 +188,28 @@ async function agendarCitaPasaporte(usuario, executionId) {
 
     await page.getByRole('checkbox', { name: 'Acepto la política de' }).setChecked(true);
 
-    // El reto de reCAPTCHA casi siempre se dispara justo al aceptar la
-    // politica de datos (antes de llegar a "Siguiente"). Se detecta por
-    // el overlay que pinta Google, no por tiempos ni por adivinar.
     const RECAPTCHA_DETECCION_TIMEOUT_MS = 4000;
     await manejarRecaptchaSiAparece(page, executionId, log, RECAPTCHA_DETECCION_TIMEOUT_MS);
 
-    // 4. Avanzar — si el reto ya se resolvio arriba (o nunca aparecio),
-    // este click deberia pasar directo al paso 2.
     await page.getByRole('button', { name: 'Siguiente' }).click();
 
-    // Respaldo: por si el reto aparece justo en este punto en vez de
-    // al aceptar la politica (el sitio no siempre lo dispara igual).
     const pasoSolo = await avanzoAutomaticamente(page, AVANCE_AUTOMATICO_TIMEOUT_MS);
 
     if (!pasoSolo) {
       const seManejoAqui = await manejarRecaptchaSiAparece(page, executionId, log, 500);
       if (!seManejoAqui) {
-        // No hay overlay pero tampoco avanzo — puede ser lentitud de red,
-        // no necesariamente un reto. Se espera un poco mas antes de fallar.
         await page.getByRole('tab', { name: '2. Lugar, Fecha y hora', selected: true }).waitFor({ timeout: 15000 });
       }
     } else {
       log.ok('El reCAPTCHA no volvio a aparecer, continuando.');
     }
 
-    // 5. Paso 2 — Lugar, fecha y hora (dinamico, no estatico)
+    // 5. Paso 2 — Lugar, fecha y hora (dinamico: prueba cada sede hasta
+    // encontrar una con cupo disponible, no fuerza "Cali, Norte")
+    const { fechaLocator, tituloFecha, sedeTexto } = await seleccionarSedeConDisponibilidad(page, log);
 
-    // Sede: se busca la tarjeta que contiene el texto "cali, norte" y se
-    // hace click en su botón de seleccionar.
-    const tarjetaSedeNorte = page
-      .locator('div.d-flex.justify-content-between.align-items-center.flex-wrap')
-      .filter({ hasText: /cali,\s*norte/i })
-      .first();
-
-    if ((await tarjetaSedeNorte.count()) === 0) {
-      throw new Error('No se encontró la tarjeta de sede "Cali, Norte".');
-    }
-
-    await tarjetaSedeNorte.locator('label.radio-btn').click();
-    log.ok('Sede "Cali, Norte" seleccionada');
-
-    // Fecha: el sitio marca con la clase "highlight" los dias con cupos.
-    // Se toma la primera disponible en el orden en que aparece el calendario.
-    const fechasDisponibles = page.locator('table td.highlight');
-    if ((await fechasDisponibles.count()) === 0) {
-      throw new Error('No hay fechas disponibles para agendar en esta sede.');
-    }
-    const fechaDisponible = fechasDisponibles.first();
-    const tituloFecha = await fechaDisponible.getAttribute('title');
-    await fechaDisponible.click();
-    log.info(`Fecha seleccionada (${tituloFecha || 'sin detalle'})`);
+    await fechaLocator.click();
+    log.info(`Fecha seleccionada en "${sedeTexto}" (${tituloFecha || 'sin detalle'})`);
 
     // Hora: elementos .buttonList-interval son los horarios con cupo.
     const horasDisponibles = page.locator('.buttonList-interval');
@@ -222,22 +229,13 @@ async function agendarCitaPasaporte(usuario, executionId) {
     // 6. Paso 3 — Confirmacion
     await page.getByRole('button', { name: 'Agendar' }).click();
 
-    // const response = await page.waitForResponse((res) =>
-    //   res.url().includes('/createPassportSchedulingRequest')
-    // );
-    // log.info(`createPassportSchedulingRequest -> ${response.status()}`);
-    // if (response.status() !== 200) {
-    //   throw new Error('El servidor rechazo la solicitud de agendamiento (revisa OTP/reCAPTCHA).');
-    // }
-
     // 7. Encuesta de satisfaccion -> flujo real de confirmacion
     await page.getByRole('button', { name: 'Calificar' }).click();
-    
+
     // 8. Verificar mensaje final y capturar el link del comprobante
     await page.getByRole('button', { name: 'Aceptar' }).click();
 
     await page.getByRole('heading', { name: 'Cita agendada con éxito' }).waitFor();
-
 
     const comprobanteHref = await page.getByRole('link', { name: 'Descargar comprobante' }).getAttribute('href');
 
