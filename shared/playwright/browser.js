@@ -1,17 +1,60 @@
 const { chromium } = require('playwright');
 
 /**
- * Lanza el navegador. `headless` deberia ser `false` solo en un entorno
- * donde alguien pueda ver la pantalla para resolver el reCAPTCHA
- * manualmente (ver nota en agendar_cita_pasaporte.js). En un servidor
- * sin interfaz grafica, `headless: true` no permite esa intervencion
- * humana, asi que ese paso quedaria bloqueado — ver el comentario
- * "OJO - reCAPTCHA" en el flujo principal.
+ * Lanza una instancia de Chromium con un BrowserContext independiente.
+ *
+ * Cada ejecución tiene:
+ *
+ * Browser
+ *   └── Context
+ *        └── Page
+ *
+ * headless: false es necesario actualmente porque el operador
+ * debe poder resolver manualmente OTP/reCAPTCHA.
  */
-async function lanzarNavegador({ headless = false } = {}) {
-  const browser = await chromium.launch({ headless });
-  const page = await browser.newPage();
-  return { browser, page };
+async function lanzarNavegador({
+  headless = false,
+  viewport = null,
+} = {}) {
+  const browser = await chromium.launch({
+    headless,
+  });
+
+  const contextOptions = {};
+
+  if (viewport) {
+    contextOptions.viewport = viewport;
+  }
+
+  const context = await browser.newContext(
+    contextOptions
+  );
+
+  const page = await context.newPage();
+
+  return {
+    browser,
+    context,
+    page,
+  };
 }
 
-module.exports = { lanzarNavegador };
+async function cerrarNavegador(browser) {
+  if (!browser) {
+    return;
+  }
+
+  try {
+    await browser.close();
+  } catch (error) {
+    console.error(
+      '[Playwright] Error cerrando navegador:',
+      error.message
+    );
+  }
+}
+
+module.exports = {
+  lanzarNavegador,
+  cerrarNavegador,
+};
