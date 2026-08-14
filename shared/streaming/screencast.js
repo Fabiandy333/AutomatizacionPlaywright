@@ -6,10 +6,6 @@
  * IMPORTANTE: este modulo es deliberadamente de UNA SOLA VIA.
  * Emite fotogramas hacia quien los pida (onFrame), pero no expone
  * ningun metodo para inyectar clics, teclas o eventos hacia la pagina.
- * Si en el futuro alguien intenta agregar esa funcionalidad aqui, es una
- * señal de que se esta construyendo el bypass de reCAPTCHA que ya
- * decidimos no construir — no agregar `Input.dispatchMouseEvent` ni
- * similares a este archivo.
  */
 
 async function iniciarScreencast(page, onFrame) {
