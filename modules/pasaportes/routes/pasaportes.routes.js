@@ -9,7 +9,7 @@ const router = Router();
 /**
  * Inicia un agendamiento.
  *
- * Body:
+ * Body individual:
  *
  * {
  *   tipoDocumento,
@@ -20,8 +20,7 @@ const router = Router();
  *   numberPhone,
  *   address,
  *   email,
- *   paymentDate,
- *   ...
+ *   paymentDate
  * }
  *
  * También acepta un arreglo de usuarios.
@@ -47,7 +46,7 @@ router.post("/agendar", (req, res) => {
 });
 
 /**
- * Obtiene el resumen completo de la cola.
+ * Obtiene el resumen general de la cola.
  */
 router.get("/cola", (req, res) => {
   try {
@@ -74,15 +73,8 @@ router.get("/:executionId/estado", (req, res) => {
   }
 });
 
-
 /**
  * Recibe OTP.
- *
- * Body:
- *
- * {
- *   "codigo": "123456"
- * }
  */
 router.post("/:executionId/otp", (req, res) => {
   try {
@@ -157,7 +149,7 @@ router.get("/:executionId/logs", (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
 
   /*
-   * Enviamos primero el histórico.
+   * Histórico.
    */
   const logsHistoricos = obtenerLog(executionId);
 
