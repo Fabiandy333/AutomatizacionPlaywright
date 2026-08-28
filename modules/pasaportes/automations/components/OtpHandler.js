@@ -27,6 +27,10 @@ class OtpHandler {
       'Esperando que el frontend envíe el código OTP...'
     );
 
+    console.log(
+      `[OTP-DEBUG] esperarCodigo esperando señal ${this.executionId}:otp`
+    );
+
     const codigo =
       await this.pendingSignals.waitFor(
         `${this.executionId}:otp`,
