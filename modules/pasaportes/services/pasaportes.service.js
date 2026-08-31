@@ -173,17 +173,37 @@ function recibirCodigoOtp(executionId, codigo) {
     throw new Error("El código OTP es obligatorio.");
   }
 
-  if (!executionsRepo.obtener(executionId)) {
+  const registro = executionsRepo.obtener(executionId);
+
+  if (!registro) {
     throw new Error("executionId no existe.");
   }
 
-  const entregado = pendingSignals.resolveSignal(`${executionId}:otp`, codigo);
+  const key = `${executionId}:otp`;
+
+  const esperaActiva = pendingSignals.isWaiting(key);
+
+  console.log(
+    `[OTP-DEBUG] recibirCodigoOtp id=${executionId} estado=${registro.estado} esperandoSeñal=${esperaActiva}`,
+  );
+
+  const entregado = pendingSignals.resolveSignal(key, codigo);
 
   if (!entregado) {
     throw new Error(
-      "Esta ejecución no está esperando un código OTP en este momento.",
+      `Esta ejecución no está esperando un código OTP en este momento. (estado=${registro.estado}, esperandoSeñal=${esperaActiva})`,
     );
   }
+
+  /*
+   * La señal ya fue consumida. Volvemos el
+   * estado del repositorio a en_progreso para
+   * que el frontend deje de ver "esperando_otp"
+   * y no vuelva a abrir el modal ni reenvíe OTP.
+   */
+  executionsRepo.actualizar(executionId, {
+    estado: "en_progreso",
+  });
 
   return {
     ok: true,
@@ -230,7 +250,24 @@ function obtenerEstado(executionId) {
 
   const estadoCola = pasaportesQueue.obtenerEstado(executionId);
 
-  const estado = estadoCola.estadoActual || registro.estado || "desconocido";
+  /*
+   * Estado que requiere una acción humana y
+   * que la cola no refleja en ejecucionActual.
+   *
+   * Tienen prioridad sobre el estado genérico
+   * de la cola ("en_progreso").
+   */
+  const ESTADOS_HUMANOS = ["esperando_otp", "esperando_recaptcha"];
+
+  const estadoEspecial = ESTADOS_HUMANOS.includes(registro.estado)
+    ? registro.estado
+    : null;
+
+  const estado =
+    estadoEspecial ||
+    estadoCola.estadoActual ||
+    registro.estado ||
+    "desconocido";
 
   return {
     id: registro.id,
